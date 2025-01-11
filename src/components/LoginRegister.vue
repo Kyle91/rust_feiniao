@@ -82,7 +82,7 @@
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
-import { invoke } from '@tauri-apps/api/tauri'
+import { invoke } from '@tauri-apps/api/core'
 
 const currentTab = ref('password')
 const tabs = [

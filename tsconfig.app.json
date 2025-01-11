@@ -9,6 +9,6 @@
     "paths": {
       "@/*": ["./src/*"]
     },
-    "types": ["@tauri-apps/api"]
+    "types": ["@tauri-apps/api", "node"]
   }
 }

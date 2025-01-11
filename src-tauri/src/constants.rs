@@ -2,7 +2,7 @@ pub struct AppConfig;
 
 impl AppConfig {
     // 基础配置
-    pub const BASE_URL: &'static str = "https://safe.ydyrx.top";
+    pub const BASE_URL: &'static str = "http://127.0.0.1:18888";
     pub const APP_ID: &'static str = "10001";
     
     // AES密钥
