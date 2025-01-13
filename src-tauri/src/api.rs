@@ -9,6 +9,7 @@ use crate::constants::AppConfig;
 use rand::Rng;
 use std::sync::Arc;
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
+use openssl::rsa::Rsa;
 
 // 全局单例
 static API_INSTANCE: Lazy<Arc<Mutex<FeiNiaoAPI>>> = Lazy::new(|| {
@@ -87,7 +88,7 @@ impl FeiNiaoAPI {
         Ok(())
     }
 
-    async fn request(&mut self, api_name: &str, params: Option<Value>) -> Result<ApiResponse, String> {
+    async fn request(&mut self, api_name: &str, params: Option<Value>, encrypt_type: i32) -> Result<ApiResponse, String> {
         // 1. 构建基础请求数据
         let mut request_data = json!({
             "Time": self.get_timestamp(),
@@ -106,21 +107,45 @@ impl FeiNiaoAPI {
         let request_str = serde_json::to_string(&request_data)
             .map_err(|e| format!("序列化请求数据失败: {}", e))?;
 
-        // 4. AES加密
-        let aes_key_bytes = AppConfig::AES_KEY.as_bytes();
+        let (encrypted_data, sign) = if encrypt_type == 2 && AppConfig::RSA_APIS.contains(&api_name) {
+            // RSA + AES 加密流程
+            // 1. 随机生成一个密钥，使用AES加密请求数据
+            let aes_key = CryptoUtil::generate_aes_key();
+            let aes_key_bytes = aes_key.as_bytes();
+            let encrypted_data = CryptoUtil::aes_encrypt(
+                request_str.as_bytes(),
+                aes_key_bytes,
+            )?;
+            
+            // 2. 使用RSA加密AES密钥
+            let public_key = Rsa::public_key_from_pem(AppConfig::RSA_PUBLIC_KEY.as_bytes())
+                .map_err(|e| format!("公钥解析失败: {}", e))?;
+            let encrypted_key = CryptoUtil::rsa_encrypt(
+                aes_key.as_bytes(),
+                &public_key,
+            )?;
+            
+            // 3. 计算签名
+            let sign = encrypted_key;
+            
+            (encrypted_data, sign)
+        } else {
+            // 原有的AES加密流程
+            let aes_key_bytes = AppConfig::AES_KEY.as_bytes();
+            let encrypted_data = CryptoUtil::aes_encrypt(
+                request_str.as_bytes(),
+                aes_key_bytes,
+            )?;
+            let sign_data = format!("{}{}", encrypted_data, AppConfig::AES_KEY);
+            let sign = CryptoUtil::md5_hash(sign_data.as_bytes());
+            
+            (encrypted_data, sign)
+        };
 
-        let encrypted_data = CryptoUtil::aes_encrypt(
-            request_str.as_bytes(),
-            aes_key_bytes,
-        )?;
         println!("加密后的数据: {}", encrypted_data);
-
-        // 5. 计算签名
-        let sign_data = format!("{}{}", encrypted_data, AppConfig::AES_KEY);
-        let sign = CryptoUtil::md5_hash(sign_data.as_bytes());
         println!("请求签名: {}", sign);
 
-        // 6. 构建最终请求数据
+        // 构建最终请求数据
         let final_request = json!({
             "a": encrypted_data,
             "b": sign
@@ -151,17 +176,33 @@ impl FeiNiaoAPI {
             .ok_or("Missing encrypted data in response")?;
         let response_sign = response_data["b"].as_str()
             .ok_or("Missing sign in response")?;
-        let res_sign_data = format!("{}{}", response_data_str, AppConfig::AES_KEY);
-        let verify_sign = CryptoUtil::md5_hash(res_sign_data.as_bytes());
-        if verify_sign != response_sign {
-            return Err("响应签名验证失败".to_string());
-        }
-
-        // 10. 解密响应数据
-        let decrypted_data = CryptoUtil::aes_decrypt(
-            response_data_str,
-            aes_key_bytes,
-        )?;
+        let decrypted_data = if encrypt_type == 2 && AppConfig::RSA_APIS.contains(&api_name) {
+            // RSA + AES 解密流程
+            // 1. 从响应中获取加密的AES密钥
+            let encrypted_key = response_sign;
+            
+            // 2. 使用RSA公钥解密AES密钥
+            let public_key = Rsa::public_key_from_pem(AppConfig::RSA_PUBLIC_KEY.as_bytes())
+                .map_err(|e| format!("公钥解析失败: {}", e))?;
+            let decrypted_key = CryptoUtil::rsa_decrypt_with_public_key(
+                encrypted_key,
+                &public_key,
+            )?;
+            
+            // 4. 使用解密后的AES密钥解密数据
+            CryptoUtil::aes_decrypt(response_data_str, &decrypted_key)?
+        } else {
+            // 原有的AES解密流程
+            // 1. 验证签名
+            let verify_sign_data = format!("{}{}", response_data_str, AppConfig::AES_KEY);
+            let verify_sign = CryptoUtil::md5_hash(verify_sign_data.as_bytes());
+            if verify_sign != response_sign {
+                return Err("响应签名验证失败".to_string());
+            }
+            
+            // 2. 使用AES密钥解密数据
+            CryptoUtil::aes_decrypt(response_data_str, AppConfig::AES_KEY.as_bytes())?
+        };
 
         // 11. 解析解密后的数据
         let decrypted_str = String::from_utf8(decrypted_data)
@@ -181,7 +222,7 @@ impl FeiNiaoAPI {
     }
 
     pub async fn get_token(&mut self) -> Result<String, String> {
-        let response = self.request("GetToken", None).await?;
+        let response = self.request("GetToken", None, 2).await?;
         
         if let Some(data) = response.Data {
             if let Some(token) = data.get("Token").and_then(Value::as_str) {
@@ -197,6 +238,6 @@ impl FeiNiaoAPI {
             return Err("Token not set. Please call get_token first.".to_string());
         }
         
-        self.request(api_name, params).await
+        self.request(api_name, params, 1).await
     }
 } 

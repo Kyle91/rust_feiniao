@@ -4,19 +4,39 @@
 
 ## 加密流程
 
-所有接口使用 AES-192-CBC 加密通信：
+支持两种加密通信方式：
 
-1. 请求加密流程：
+### 1. AES-192-CBC 固定密钥加密：
 
-   - 构建请求数据（包含 Time、Status、Api 等字段）
-   - 使用 AES-192-CBC 加密请求数据
-   - 计算签名：MD5(加密后数据 + AES密钥)
-   - 发送请求：{"a": "加密后数据", "b": "签名"}
+#### 请求加密流程：
 
-2. 响应解密流程：
-   - 验证响应签名
-   - 使用 AES-192-CBC 解密响应数据
-   - 解析 JSON 响应
+- 构建请求数据（包含 Time、Status、Api 等字段）
+- 使用 AES-192-CBC 加密请求数据
+- 计算签名：MD5(加密后数据 + AES密钥)
+- 发送请求：{"a": "加密后数据", "b": "签名"}
+
+#### 响应解密流程：
+
+- 验证响应签名：MD5(加密数据 + AES密钥)
+- 使用 AES-192-CBC 解密响应数据
+- 解析 JSON 响应
+
+### 2. RSA + AES 动态密钥加密：
+
+#### 请求加密流程：
+
+- 构建请求数据（包含 Time、Status、Api 等字段）
+- 随机生成 AES-192 密钥
+- 使用 AES-192-CBC 加密请求数据
+- 使用 RSA 公钥加密 AES 密钥
+- 发送请求：{"a": "AES加密的数据", "b": "RSA加密的AES密钥"}
+
+#### 响应解密流程：
+
+- 获取加密的 AES 密钥（在响应的 b 字段）
+- 使用 RSA 公钥解密得到 AES 密钥
+- 使用解密后的 AES 密钥解密响应数据
+- 解析 JSON 响应
 
 ## 开发环境配置
 
@@ -38,8 +58,19 @@
    - 验证安装：`node --version` 和 `npm --version`
 
 3. 安装系统依赖（Windows）
+
    - 安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
    - 选择安装 "Desktop development with C++"
+
+4. 安装 OpenSSL（Windows）
+   - 下载 Win64 OpenSSL v3.1.x: https://slproweb.com/products/Win32OpenSSL.html
+   - 选择 "Win64 OpenSSL v3.1.x" 的 EXE 安装包
+   - 安装时选择 "Copy OpenSSL DLLs to Windows system directory"
+   - 设置环境变量：
+     ```
+     OPENSSL_DIR=C:\Program Files\OpenSSL-Win64
+     Path 添加 C:\Program Files\OpenSSL-Win64\bin
+     ```
 
 ## 项目设置
 
