@@ -2,7 +2,7 @@ pub struct AppConfig;
 
 impl AppConfig {
     // 基础配置
-    pub const BASE_URL: &'static str = "https://safe.ydyrx.top";
+    pub const BASE_URL: &'static str = "你的域名";
     pub const APP_ID: &'static str = "10001";
     
     // AES密钥，密钥这里如果是rsa交换的话，是随机生成的
